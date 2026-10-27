@@ -6,19 +6,20 @@
 <title>刀剑乱舞剪影识别</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; background: #f2f3f5; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2937; }
+  body { margin: 0; background: #f2f3f5; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2937; overflow-x: hidden; }
   body.dragging { background: #e8f5ec; }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 20px; }
-  @media (max-width: 600px) { .wrap { padding: 12px; } h1 { font-size: 17px; } header { flex-direction: column; gap: 4px; } }
   header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
   h1 { font-size: 20px; margin: 0; }
   .status { font-size: 13px; color: #6b7280; }
   .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.06); }
   .drop { border: 2px dashed #c8ccd4; border-radius: 10px; padding: 40px; text-align: center; color: #6b7280; cursor: pointer; }
   .drop:hover { border-color: #16a34a; color: #16a34a; }
-  .stage { position: relative; display: inline-block; line-height: 0; }
-  #shot { display: block; border-radius: 6px; }
+  .stage { position: relative; display: inline-block; line-height: 0; touch-action: none; }
+  .stage * { touch-action: none; }
+  #shot { display: block; border-radius: 6px; -webkit-user-drag: none; user-select: none; }
   #box { position: absolute; border: 2px solid #16a34a; box-shadow: 0 0 0 1px rgba(255,255,255,.9); display: none; cursor: move; }
+  #box .h { position: absolute; right: -15px; bottom: -15px; width: 26px; height: 26px; border-radius: 50%; background: #16a34a; border: 3px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,.3); cursor: nwse-resize; }
   .cell { position: absolute; }
   .cell.on { background: rgba(22,163,74,.22); }
   .bar { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
@@ -35,6 +36,16 @@
   .sub { font-size: 12px; color: #6b7280; margin-top: 4px; }
   .hint { font-size: 12px; color: #98a0ac; margin-top: 10px; }
   #file { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  @media (max-width: 600px) {
+    .wrap { padding: 12px; }
+    h1 { font-size: 17px; }
+    header { flex-direction: column; gap: 4px; }
+    .card { padding: 10px; }
+    .bar { flex-wrap: wrap; }
+    button { padding: 10px 18px; font-size: 15px; }
+    .drop { padding: 24px 12px; }
+    .thumb { width: 52px; height: 52px; }
+  }
 </style>
 </head>
 <body>
@@ -56,6 +67,7 @@
           <div class="cell"></div><div class="cell"></div><div class="cell"></div>
           <div class="cell"></div><div class="cell"></div><div class="cell"></div>
           <div class="cell"></div><div class="cell"></div><div class="cell"></div>
+          <div class="h"></div>
         </div>
       </div>
     </div>
@@ -65,7 +77,7 @@
       <input type="file" id="file" accept="image/*">
     </div>
     <div class="tips">
-      拖动绿框可微调位置，Ctrl+滚轮缩放大小，方向键微移，Shift+方向键更细；也可以直接把截图粘贴进来（Ctrl+V）。
+      电脑上拖动绿框移动，按住 Ctrl 滚轮缩放，方向键微移（Shift 更细）；手机上单指拖动移动绿框，拖右下角圆点或双指捏合缩放绿框。截图可直接粘贴（Ctrl+V）。
     </div>
   </div>
 
@@ -759,17 +771,27 @@ function useImage(im, url) {
   img = im;
   imgW = im.naturalWidth;
   imgH = im.naturalHeight;
-  const avail = Math.min(stage.parentElement.clientWidth || 1100, window.innerWidth - 80);
-  const scale = Math.min(1, avail / imgW);
-  shot.style.width = Math.round(imgW * scale) + 'px';
   shot.src = url;
-  dispScale = scale;
   boxImg = null;
   $('drop').style.display = 'none';
   $('stage').style.display = 'block';
   $('results').innerHTML = '';
+  layout();
   analyze();
 }
+
+// 图片按容器宽度等比显示；竖长截图再按视口高度收一下，手机上一屏放得下
+function layout() {
+  const avail = Math.max(120, (stage.parentElement.clientWidth || 1100) - 2);
+  const scale = Math.min(1, avail / imgW, (window.innerHeight * 0.68) / imgH);
+  shot.style.width = Math.round(imgW * scale) + 'px';
+  dispScale = scale;
+  drawBox();
+}
+
+window.addEventListener('resize', () => {
+  if (img) layout();
+});
 
 function loadFile(file) {
   // 本地文件直接当 src 会污染画布，读成 data URL 再画
@@ -852,49 +874,122 @@ function clampBox(f) {
   };
 }
 
-let dragging = null;
+// 手势：单指拖动移动绿框，拖右下角圆点或双指捏合缩放绿框
+let gesture = null; // { mode: 'drag' | 'resize', x, y, box }
+let pinch = null; // 双指捏合开始时的距离、中点和框
+
+const isHandle = (el) => !!(el && el.classList && el.classList.contains('h'));
+
+function clampSize(s) {
+  return Math.min(Math.max(60, s), Math.min(imgW, imgH) * 0.98);
+}
+
+function startGesture(target, cx, cy) {
+  gesture = {
+    mode: isHandle(target) ? 'resize' : 'drag',
+    x: cx,
+    y: cy,
+    box: { x: boxImg.x, y: boxImg.y, size: boxImg.size },
+  };
+}
+
+function moveGesture(cx, cy) {
+  if (!gesture || !boxImg) return;
+  const b = gesture.box;
+  if (gesture.mode === 'drag') {
+    boxImg = clampBox({
+      x: b.x + (cx - gesture.x) / dispScale,
+      y: b.y + (cy - gesture.y) / dispScale,
+      size: b.size,
+    });
+  } else {
+    // 圆点沿对角线拉动，左上角不动
+    const d = (cx - gesture.x + cy - gesture.y) / 2 / dispScale;
+    boxImg = clampBox({ x: b.x, y: b.y, size: clampSize(b.size + d) });
+  }
+  drawBox();
+}
+
+function endGesture() {
+  if (!gesture) return;
+  gesture = null;
+  setBox(boxImg, false);
+}
+
 stage.addEventListener('mousedown', (e) => {
   if (!boxImg) return;
-  dragging = { x: e.clientX, y: e.clientY, bx: boxImg.x, by: boxImg.y };
+  startGesture(e.target, e.clientX, e.clientY);
   e.preventDefault();
 });
 window.addEventListener('mousemove', (e) => {
-  if (!dragging || !boxImg) return;
-  boxImg = clampBox({
-    x: dragging.bx + (e.clientX - dragging.x) / dispScale,
-    y: dragging.by + (e.clientY - dragging.y) / dispScale,
-    size: boxImg.size,
-  });
-  drawBox();
+  if (!gesture) return;
+  moveGesture(e.clientX, e.clientY);
 });
-window.addEventListener('mouseup', () => {
-  if (!dragging) return;
-  dragging = null;
-  setBox(boxImg, false);
-});
+window.addEventListener('mouseup', endGesture);
 
-// 触屏拖动
-stage.addEventListener('touchstart', (e) => {
-  if (!boxImg || e.touches.length !== 1) return;
-  const t = e.touches[0];
-  dragging = { x: t.clientX, y: t.clientY, bx: boxImg.x, by: boxImg.y };
-}, { passive: true });
-stage.addEventListener('touchmove', (e) => {
-  if (!dragging || !boxImg || e.touches.length !== 1) return;
-  const t = e.touches[0];
-  boxImg = clampBox({
-    x: dragging.bx + (t.clientX - dragging.x) / dispScale,
-    y: dragging.by + (t.clientY - dragging.y) / dispScale,
-    size: boxImg.size,
-  });
-  drawBox();
-  e.preventDefault();
-}, { passive: false });
-stage.addEventListener('touchend', () => {
-  if (!dragging) return;
-  dragging = null;
-  setBox(boxImg, false);
-});
+stage.addEventListener(
+  'touchstart',
+  (e) => {
+    if (!boxImg) return;
+    if (e.touches.length >= 2) {
+      const a = e.touches[0];
+      const b = e.touches[1];
+      gesture = null;
+      pinch = {
+        d: Math.max(12, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)),
+        mx: (a.clientX + b.clientX) / 2,
+        my: (a.clientY + b.clientY) / 2,
+        box: { x: boxImg.x, y: boxImg.y, size: boxImg.size },
+      };
+      e.preventDefault();
+      return;
+    }
+    if (e.touches.length !== 1) return;
+    startGesture(e.target, e.touches[0].clientX, e.touches[0].clientY);
+    e.preventDefault();
+  },
+  { passive: false }
+);
+
+stage.addEventListener(
+  'touchmove',
+  (e) => {
+    if (!boxImg) return;
+    if (pinch && e.touches.length >= 2) {
+      const a = e.touches[0];
+      const b = e.touches[1];
+      const d = Math.max(12, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY));
+      const b0 = pinch.box;
+      const size = clampSize(b0.size * (d / pinch.d));
+      const mx = (a.clientX + b.clientX) / 2;
+      const my = (a.clientY + b.clientY) / 2;
+      // 边缩放边跟着双指中点平移，一只手就能挪到位
+      const cx = b0.x + b0.size / 2 + (mx - pinch.mx) / dispScale;
+      const cy = b0.y + b0.size / 2 + (my - pinch.my) / dispScale;
+      boxImg = clampBox({ x: cx - size / 2, y: cy - size / 2, size });
+      drawBox();
+      e.preventDefault();
+      return;
+    }
+    if (!gesture || e.touches.length !== 1) return;
+    moveGesture(e.touches[0].clientX, e.touches[0].clientY);
+    e.preventDefault();
+  },
+  { passive: false }
+);
+
+function endTouch(e) {
+  if (pinch) {
+    if (e.touches && e.touches.length >= 2) return;
+    pinch = null;
+    gesture = null;
+    if (boxImg) setBox(boxImg, false);
+    return;
+  }
+  endGesture();
+}
+stage.addEventListener('touchend', endTouch);
+stage.addEventListener('touchcancel', endTouch);
 stage.addEventListener(
   'wheel',
   (e) => {
