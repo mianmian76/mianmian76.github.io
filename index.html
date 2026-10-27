@@ -652,8 +652,21 @@ function classify(st, box) {
 </script>
 <script>
 const RAW = TPL;
+
+// 当前活动只开放其中一部分角色，名单外的暂时不参与匹配。
+// 活动结束后把 OFF 清空，即可恢复全部 125 位。
+const OFF = [
+  '抜丸', '白山吉光', '福島光忠',
+  '七星剣', '丙子椒林剣', '稲葉江', '笹貫', '人間無骨', '八丁念仏',
+  '石田正宗', '実休光忠', '京極正宗', '後家兼光', '火車切', '富田江',
+  '大慶直胤', '九鬼正宗', '道誉一文字', '面影', '古備前信房',
+  '倶利伽羅江', '三郎国宗', '安宅切', '二筋樋貞宗', '童子切安綱',
+];
+const ACTIVE = RAW.filter((t) => OFF.indexOf(t.name) < 0);
+const ACTIVE_COUNT = new Set(ACTIVE.map((t) => t.name)).size;
+
 // utils/matcher.js
-// 把截图上已揭开的格子与 164 张模板逐格比对，返回候选排名。
+// 把截图上已揭开的格子与内置模板逐格比对，返回候选排名。
 
 
 
@@ -684,12 +697,12 @@ let compiled = null;
 
 function buildIndex() {
   if (compiled) return compiled;
-  compiled = RAW.map((t) => ({
+  compiled = ACTIVE.map((t) => ({
     tpl: t,
     cells: new Array(9),
   }));
   for (let i = 0; i < compiled.length; i++) {
-    const bytes = b64ToBytes(RAW[i].bmp);
+    const bytes = b64ToBytes(ACTIVE[i].bmp);
     for (let g = 0; g < 9; g++) {
       const r = (g / 3) | 0;
       const c = g % 3;
@@ -1083,7 +1096,7 @@ $('go').addEventListener('click', () => {
     </div>`
     )
     .join('');
-  $('results').innerHTML = rows + `<div class="hint">匹配耗时 ${ms} 毫秒。只揭开一两格时结果可能不准，多揭几格更稳。</div>`;
+  $('results').innerHTML = rows + `<div class="hint">匹配耗时 ${ms} 毫秒，当前活动范围 ${ACTIVE_COUNT} 位角色。只揭开一两格时结果可能不准，多揭几格更稳。</div>`;
   log('识别完成');
 });
 
