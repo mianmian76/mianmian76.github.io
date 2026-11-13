@@ -787,6 +787,7 @@ let boxImg = null;
 let cells = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 let st = null;
 let anaScale = 1;
+let baseSize = 0; // 自动定位出的初始框大小，滑杆以它为基准
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stageInner');
@@ -844,6 +845,11 @@ function analyze() {
     st = prepare(data, aw, ah);
     anaScale = scale;
     const found = detect(st);
+  baseSize = found.size / scale;
+  const szEl = $('sizer');
+  if (szEl) szEl.style.display = 'flex';
+  const slEl = $('boxsize');
+  if (slEl) slEl.value = '100';
     setBox({ x: found.x / scale, y: found.y / scale, size: found.size / scale }, found.confidence > 0);
   } catch (err) {
     log('出错：' + err.message);
@@ -894,6 +900,19 @@ function clampBox(f) {
   };
 }
 
+// 滑杆调框大小，围绕当前中心缩放
+(function () {
+  const sl = $('boxsize');
+  if (!sl) return;
+  sl.addEventListener('input', () => {
+    if (!boxImg || !baseSize) return;
+    const size = Math.max(40, Math.min(Math.min(imgW, imgH) * 0.98, baseSize * (Number(sl.value) / 100)));
+    const cx = boxImg.x + boxImg.size / 2;
+    const cy = boxImg.y + boxImg.size / 2;
+    setBox({ x: cx - size / 2, y: cy - size / 2, size: size }, false);
+  });
+})();
+
 let dragging = null;
 stage.addEventListener('mousedown', (e) => {
   if (!boxImg) return;
@@ -932,6 +951,28 @@ stage.addEventListener('touchmove', (e) => {
   drawBox();
   e.preventDefault();
 }, { passive: false });
+let pinchStart = null;
+stage.addEventListener('touchstart', (e) => {
+  if (!boxImg || e.touches.length !== 2) return;
+  const a = e.touches[0], b = e.touches[1];
+  pinchStart = {
+    dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+    size: boxImg.size,
+    cx: boxImg.x + boxImg.size / 2,
+    cy: boxImg.y + boxImg.size / 2,
+  };
+}, { passive: true });
+stage.addEventListener('touchmove', (e) => {
+  if (!pinchStart || e.touches.length !== 2) return;
+  const a = e.touches[0], b = e.touches[1];
+  const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  if (!dist || !pinchStart.dist) return;
+  const size = Math.max(40, Math.min(Math.min(imgW, imgH) * 0.98, pinchStart.size * (dist / pinchStart.dist)));
+  setBox({ x: pinchStart.cx - size / 2, y: pinchStart.cy - size / 2, size: size }, false);
+  e.preventDefault();
+}, { passive: false });
+stage.addEventListener('touchend', () => { pinchStart = null; });
+
 stage.addEventListener('touchend', () => {
   if (!dragging) return;
   dragging = null;
