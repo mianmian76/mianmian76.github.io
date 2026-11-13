@@ -34,6 +34,8 @@
   .name { font-size: 15px; }
   .sub { font-size: 12px; color: #6b7280; margin-top: 4px; }
   .hint { font-size: 12px; color: #98a0ac; margin-top: 10px; }
+    .sizer { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: #6b7280; }
+    .sizer input[type=range] { flex: 1 1 auto; }
   #file { position: absolute; width: 1px; height: 1px; opacity: 0; }
 </style>
 </head>
@@ -64,8 +66,12 @@
       <button id="go" disabled>开始识别</button>
       <input type="file" id="file" accept="image/*">
     </div>
+    <div class="sizer" id="sizer" style="display:none">
+      <span>框大小</span>
+      <input type="range" id="boxsize" min="40" max="200" value="100">
+    </div>
     <div class="tips">
-      拖动绿框可微调位置，Ctrl+滚轮缩放大小，方向键微移，Shift+方向键更细；也可以直接把截图粘贴进来（Ctrl+V）。
+      拖动绿框可微调位置；手机用下方滑杆或双指捏合调大小；电脑可用 Ctrl+滚轮、方向键微调；也可以直接粘贴截图（Ctrl+V）。
     </div>
   </div>
 
